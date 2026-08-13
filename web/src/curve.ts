@@ -21,7 +21,10 @@ export const MAX_POINTS = 8;
 export function clampPoint(p: CurvePoint): CurvePoint {
   return {
     speed: Math.min(SPEED_MAX, Math.max(0, Math.round(p.speed) || 0)),
-    factor: Math.min(FACTOR_MAX, Math.max(FACTOR_MIN, Math.round(p.factor) || FACTOR_MIN)),
+    factor: Math.min(
+      FACTOR_MAX,
+      Math.max(FACTOR_MIN, Math.round(p.factor) || FACTOR_MIN)
+    ),
   };
 }
 
