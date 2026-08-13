@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Hardware-free functional test: boot this module's firmware as a wired split
 pair in Renode and exercise its own custom Studio RPC over the central's
-emulated USB CDC. This is the one test file a module built from this template
-rewrites for its own RPC surface; the generic checks (both halves booting, the
-wired split link, a core GetDeviceInfo round trip over USB) already ran in the
-action's smoke step.
+emulated USB CDC. The generic checks (both halves booting, the wired split
+link, a core GetDeviceInfo round trip over USB) already ran in the action's
+smoke step; this file covers the runtime-accel RPC surface:
+ListInstances -> GetCurve (devicetree default) -> SetCurve -> GetCurve
+(sanitized round trip).
 
 Run by `west zmk-renode-test tests/renode --mode wired-split --elf <CENTRAL>
 --peripheral-elf <PERIPHERAL>`, which sets the `ZMK_RENODE_*` env contract (see
@@ -53,17 +54,15 @@ except ImportError:  # pragma: no cover - convenience fallback for local dev
 
 
 SUBSYSTEM_IDENTIFIER = "nat_chan__runtime_accel"
-# This template registers exactly one custom subsystem, so its index is
-# deterministically 0.
-KNOWN_SUBSYSTEM_INDEX = 0
-# Always out of range regardless of how many custom subsystems a given module
-# registers -- used to exercise the fast-path dispatch (see
-# test_custom_rpc_invalid_index_dispatch).
+# This module registers exactly one custom subsystem. The central build also
+# enables zmk-feature-custom-settings' subsystem, so resolve the index from
+# listCustomSubsystems instead of hard-coding it.
 INVALID_SUBSYSTEM_INDEX = 99
 
-SAMPLE_VALUE = 42
-# See handle_sample_request() in src/studio/runtime_accel_handler.c.
-EXPECTED_SAMPLE_RESPONSE = f"Hello from firmware! Received: {SAMPLE_VALUE}"
+# The two instances the runtime-accel-instances snippet
+# (tests/zmk-config/snippets/runtime-accel-instances/) adds to the central.
+EXPECTED_INSTANCES = ["pointer", "scroll"]
+POINTER_DEFAULT_CURVE = [0, 1000, 1000, 1000, 3000, 3500]
 
 # attach_dual_cdc_bridge's default bridge name -> monitor object prefix.
 BRIDGE_NAME = "bridge"
@@ -75,13 +74,12 @@ def _mon_is_true(mon, command: str) -> bool:
 
 class RenodeWiredSplitModuleTests(unittest.TestCase):
     """Boots the module's own wired-split pair once for the whole class (boot is
-    the slow part) and exercises the custom subsystem over the central's USB
-    CDC. (The wired split link itself is covered by the action's built-in
-    smoke; see the note near the bottom of this class about the split relay.)"""
+    the slow part) and exercises the runtime-accel subsystem over the central's
+    USB CDC."""
 
     renode_path: str
     studio_pb2 = None
-    template_pb2 = None
+    accel_pb2 = None
 
     @classmethod
     def setUpClass(cls):
@@ -95,7 +93,7 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         mode = os.environ.get("ZMK_RENODE_MODE", "wired-split")
         if mode != "wired-split":
             raise unittest.SkipTest(
-                f"ZMK_RENODE_MODE={mode!r}: this template's Renode test targets "
+                f"ZMK_RENODE_MODE={mode!r}: this module's Renode test targets "
                 "wired-split mode -- run `west zmk-renode-test tests/renode "
                 "--mode wired-split --elf build/usb_wired_central/zephyr/zmk.elf "
                 "--peripheral-elf build/usb_wired_peripheral/zephyr/zmk.elf`"
@@ -131,15 +129,21 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         cls.studio_pb2 = renode_harness.load_studio_pb2(studio_proto_dir)
 
         # This module's own proto (package nat_chan.runtime_accel) -- protoc
-        # normalizes the hyphenated renamed module path to the snake_case package.
+        # normalizes the hyphenated module path to the snake_case package.
         out_dir = renode_harness.compile_protos(
-            [REPO_ROOT / "proto" / "nat-chan" / "runtime-accel" / "runtime_accel.proto"],
+            [
+                REPO_ROOT
+                / "proto"
+                / "nat-chan"
+                / "runtime-accel"
+                / "runtime_accel.proto"
+            ],
             include_dirs=[REPO_ROOT / "proto"],
         )
         sys.path.insert(0, str(out_dir))
-        import nat_chan.runtime_accel.template_pb2 as template_pb2  # type: ignore
+        import nat_chan.runtime_accel.runtime_accel_pb2 as accel_pb2  # type: ignore
 
-        cls.template_pb2 = template_pb2
+        cls.accel_pb2 = accel_pb2
 
         # Boot the pair and attach the DualCdcAcmBridge USB host to reach the
         # central's Studio CDC (the same steps run_usb_wired_smoke uses).
@@ -199,7 +203,38 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         time.sleep(2.0)
         cls.studio = cdc1 if dual_cdc else cdc0
 
-    def _send_call(self, subsystem_index: int, payload: bytes, request_id: int = 1):
+        cls.subsystem_index = cls._find_subsystem_index()
+
+    # -- Studio RPC plumbing --------------------------------------------------
+
+    _request_id = 0
+
+    @classmethod
+    def _next_request_id(cls) -> int:
+        cls._request_id += 1
+        return cls._request_id
+
+    @classmethod
+    def _find_subsystem_index(cls) -> int:
+        req = cls.studio_pb2.Request()
+        request_id = cls._next_request_id()
+        req.request_id = request_id
+        req.custom.list_custom_subsystems.SetInParent()
+        cls.studio.send(req.SerializeToString())
+        resp_bytes = cls.studio.read_frame(timeout=10.0)
+        assert resp_bytes is not None, "no listCustomSubsystems response"
+        resp = cls.studio_pb2.Response()
+        resp.ParseFromString(resp_bytes)
+        subsystems = resp.request_response.custom.list_custom_subsystems.subsystems
+        for subsystem in subsystems:
+            if subsystem.identifier == SUBSYSTEM_IDENTIFIER:
+                return subsystem.index
+        raise AssertionError(
+            f"{SUBSYSTEM_IDENTIFIER} not in registered subsystems: "
+            f"{[s.identifier for s in subsystems]}"
+        )
+
+    def _send_call(self, subsystem_index: int, payload: bytes, request_id: int):
         req = self.studio_pb2.Request()
         req.request_id = request_id
         req.custom.call.subsystem_index = subsystem_index
@@ -213,6 +248,24 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         resp.ParseFromString(resp_bytes)
         return resp
 
+    def _call_accel(self, inner_request):
+        """Round-trip one nat_chan.runtime_accel.Request and return the decoded
+        nat_chan.runtime_accel.Response."""
+        request_id = self._next_request_id()
+        self._send_call(
+            self.subsystem_index, inner_request.SerializeToString(), request_id
+        )
+        resp = self._read_response()
+        self.assertEqual(resp.WhichOneof("type"), "request_response")
+        self.assertEqual(resp.request_response.request_id, request_id)
+        self.assertEqual(resp.request_response.WhichOneof("subsystem"), "custom")
+        custom_resp = resp.request_response.custom
+        self.assertEqual(custom_resp.WhichOneof("response_type"), "call")
+        self.assertEqual(custom_resp.call.subsystem_index, self.subsystem_index)
+        inner_resp = self.accel_pb2.Response()
+        inner_resp.ParseFromString(custom_resp.call.payload)
+        return inner_resp
+
     # -- Affirmative proof the custom-subsystem envelope works ---------------
 
     def test_custom_rpc_invalid_index_dispatch(self):
@@ -221,10 +274,11 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         (Request.custom oneof selection, CallRequest field encoding,
         subsystem-count/index validation, meta.simple_error response) -- the
         fast, callback-free path."""
-        self._send_call(INVALID_SUBSYSTEM_INDEX, b"", request_id=7)
+        request_id = self._next_request_id()
+        self._send_call(INVALID_SUBSYSTEM_INDEX, b"", request_id)
         resp = self._read_response()
         self.assertEqual(resp.WhichOneof("type"), "request_response")
-        self.assertEqual(resp.request_response.request_id, 7)
+        self.assertEqual(resp.request_response.request_id, request_id)
         self.assertEqual(resp.request_response.WhichOneof("subsystem"), "meta")
         self.assertEqual(
             resp.request_response.meta.WhichOneof("response_type"), "simple_error"
@@ -234,35 +288,63 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
 
     # -- The real thing: this module's own custom RPC, over USB --------------
 
-    def test_custom_rpc_sample_round_trip_over_usb(self):
-        """Send this module's own SampleRequest to its registered subsystem
-        (index 0) and assert the SampleResponse comes back over the central's
-        USB CDC."""
-        inner_req = self.template_pb2.Request()
-        inner_req.sample.value = SAMPLE_VALUE
-        self._send_call(KNOWN_SUBSYSTEM_INDEX, inner_req.SerializeToString(), request_id=1)
+    def test_list_instances(self):
+        """ListInstances reports the two devicetree instances the
+        runtime-accel-instances snippet adds to the central."""
+        req = self.accel_pb2.Request()
+        req.list_instances.SetInParent()
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "instances")
+        self.assertEqual(list(resp.instances.ids), EXPECTED_INSTANCES)
 
-        resp = self._read_response()
-        self.assertEqual(resp.WhichOneof("type"), "request_response")
-        self.assertEqual(resp.request_response.request_id, 1)
-        self.assertEqual(resp.request_response.WhichOneof("subsystem"), "custom")
+    def test_get_curve_returns_devicetree_default(self):
+        """With nothing persisted, GetCurve returns the devicetree
+        default-curve of the instance."""
+        req = self.accel_pb2.Request()
+        req.get_curve.instance_id = "pointer"
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "curve")
+        self.assertEqual(resp.curve.instance_id, "pointer")
+        self.assertEqual(list(resp.curve.points), POINTER_DEFAULT_CURVE)
 
-        # zmk.custom.Response -> CallResponse{subsystem_index, payload}.
-        custom_resp = resp.request_response.custom
-        self.assertEqual(custom_resp.WhichOneof("response_type"), "call")
-        self.assertEqual(custom_resp.call.subsystem_index, KNOWN_SUBSYSTEM_INDEX)
+    def test_get_curve_unknown_instance(self):
+        req = self.accel_pb2.Request()
+        req.get_curve.instance_id = "nope"
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "error")
+        self.assertIn("Unknown instance id", resp.error.message)
 
-        inner_resp = self.template_pb2.Response()
-        inner_resp.ParseFromString(custom_resp.call.payload)
-        self.assertEqual(inner_resp.WhichOneof("response_type"), "sample")
-        self.assertEqual(inner_resp.sample.value, EXPECTED_SAMPLE_RESPONSE)
+    def test_set_curve_round_trip_with_sanitization(self):
+        """SetCurve (persist=False -> custom-settings MEMORY write -> changed
+        event -> RAM apply) followed by GetCurve returns the sanitized curve:
+        unsorted input sorted by speed, factors clamped to 100..20000."""
+        req = self.accel_pb2.Request()
+        req.set_curve.instance_id = "scroll"
+        # Unsorted + out-of-range factor: expect (0,100) (500,20000) (1500,1200).
+        req.set_curve.points.extend([1500, 1200, 0, 5, 500, 999999])
+        req.set_curve.persist = False
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "ack")
 
-    # The module's split-relay sample (central forwarding the value to the
-    # peripheral) is covered by the BabbleSim BLE test, not here: relay-over-wired
-    # needs a newer zmk than the pin. To add once it advances: build the
-    # peripheral with the module + CONFIG_ZMK_SPLIT_RELAY_EVENT and assert its
-    # "Peripheral received relayed sample value: 42 (v1)" log on
-    # self.peripheral_console.
+        req = self.accel_pb2.Request()
+        req.get_curve.instance_id = "scroll"
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "curve")
+        self.assertEqual(list(resp.curve.points), [0, 100, 500, 20000, 1500, 1200])
+
+    def test_set_curve_invalid_rejected(self):
+        """Fewer than one full control point is rejected with an error and
+        leaves the previous curve in place."""
+        req = self.accel_pb2.Request()
+        req.set_curve.instance_id = "pointer"
+        req.set_curve.points.extend([42])
+        resp = self._call_accel(req)
+        self.assertEqual(resp.WhichOneof("response_type"), "error")
+
+        req = self.accel_pb2.Request()
+        req.get_curve.instance_id = "pointer"
+        resp = self._call_accel(req)
+        self.assertEqual(list(resp.curve.points), POINTER_DEFAULT_CURVE)
 
 
 if __name__ == "__main__":

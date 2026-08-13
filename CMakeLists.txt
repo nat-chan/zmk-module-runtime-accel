@@ -1,11 +1,11 @@
 zephyr_include_directories(include)
 if(CONFIG_ZMK_RUNTIME_ACCEL)
-    # target_sources(app PRIVATE ...)
+    # Input processor + instance registry + settings apply path. Compiles
+    # with zero devicetree instances too (the RPC/native_sim stub case).
+    target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/input_processor_runtime_accel.c)
 
-    # Split-relay sample: compiled into BOTH split roles, gated on ZMK's own
-    # relay Kconfig -- see include/nat-chan/runtime-accel/template_relay.h.
-    if(CONFIG_ZMK_SPLIT_RELAY_EVENT)
-        target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/split/template_relay.c)
+    if(CONFIG_ZMK_RUNTIME_ACCEL_TEST)
+        target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/test/runtime_accel_test.c)
     endif()
 
     if(CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC)

@@ -1,15 +1,26 @@
 config ZMK_RUNTIME_ACCEL
-    bool "Enable runtime-accel feature"
+    bool "Runtime-adjustable pointer/scroll acceleration input processor"
 
 if ZMK_RUNTIME_ACCEL
 
 config ZMK_RUNTIME_ACCEL_STUDIO_RPC
-    bool "Enable runtime-accel feature custom Studio RPC"
+    bool "Curve editing over the custom Studio RPC (ListInstances/GetCurve/SetCurve)"
     depends on ZMK_STUDIO
 
-# The split-relay sample (src/split/template_relay.c) has no Kconfig of its
-# own: it follows ZMK's CONFIG_ZMK_SPLIT_RELAY_EVENT directly. Enable that
-# explicitly on BOTH split halves to compile it (the central additionally
-# needs ZMK_RUNTIME_ACCEL_STUDIO_RPC for the RPC that triggers the relay).
+config ZMK_RUNTIME_ACCEL_SETTINGS
+    bool "Persist curves with zmk-feature-custom-settings"
+    default y
+    depends on ZMK_CUSTOM_SETTINGS && ZMK_CUSTOM_SETTINGS_ARRAY
+    help
+      Registers one INT32-array custom setting per known instance id
+      ("pointer_curve" / "scroll_curve"). The settings registry only supports
+      statically defined arrays, so instances whose instance-id is neither
+      "pointer" nor "scroll" work without persistence (RAM-only curves).
+
+config ZMK_RUNTIME_ACCEL_TEST
+    bool "Compile the in-firmware native_sim test hooks"
+    help
+      Compiles src/test/runtime_accel_test.c, the SYS_INIT-driven test used
+      by tests/accel/ under native_sim. Never enable in real firmware.
 
 endif

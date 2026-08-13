@@ -54,6 +54,7 @@ class WestCommandsTests(unittest.TestCase):
         result = run_west(["zmk-test", "tests", "-m", ".", "-d", str(test_build_dir)])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS: studio", result.stdout, result.stdout + result.stderr)
+        self.assertIn("PASS: accel", result.stdout, result.stdout + result.stderr)
         self.assertNotIn("FAILED: ", result.stdout, result.stdout + result.stderr)
 
     @unittest.skipUnless(
@@ -92,8 +93,12 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_STUDIO=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y",
+                        # No custom settings in this build: curves are RAM-only.
+                        NotFound("CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS=y"),
                     ],
-                    device=[],
+                    device=[
+                        "DT_COMPAT_HAS_OKAY_zmk_input_processor_runtime_accel",
+                    ],
                 ),
                 "runtime_accel_board_without_rpc": ConfigAndDeviceTree(
                     config=[
@@ -101,17 +106,22 @@ class WestCommandsTests(unittest.TestCase):
                         "# CONFIG_ZMK_STUDIO is not set",
                         NotFound("CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC"),
                     ],
-                    device=[],
+                    device=[
+                        "DT_COMPAT_HAS_OKAY_zmk_input_processor_runtime_accel",
+                    ],
                 ),
                 # DUT of the web UI end-to-end test (web/e2e/): as
-                # runtime_accel_board_with_rpc, but unlocked -- see build.yaml.
+                # custom_settings_board, but unlocked -- see build.yaml.
                 "web_e2e": ConfigAndDeviceTree(
                     config=[
                         "CONFIG_ZMK_STUDIO=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y",
+                        "CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS=y",
                         "# CONFIG_ZMK_STUDIO_LOCKING is not set",
                     ],
-                    device=[],
+                    device=[
+                        "DT_COMPAT_HAS_OKAY_zmk_input_processor_runtime_accel",
+                    ],
                 ),
                 "custom_settings_board": ConfigAndDeviceTree(
                     config=[
@@ -120,12 +130,16 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_STUDIO=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y",
+                        "CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS=y",
                         "CONFIG_ZMK_CUSTOM_SETTINGS=y",
                         "CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y",
-                        "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=128",
+                        "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192",
+                        "CONFIG_ZMK_STUDIO_RPC_TX_BUF_SIZE=192",
                         "CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048",
                     ],
-                    device=[],
+                    device=[
+                        "DT_COMPAT_HAS_OKAY_zmk_input_processor_runtime_accel",
+                    ],
                 ),
                 # Hardware-free Renode testing pair (see README.md's
                 # "Hardware-free Renode testing" section): a wired split whose
@@ -138,12 +152,16 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_STUDIO=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL=y",
                         "CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y",
+                        "CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS=y",
+                        "CONFIG_ZMK_CUSTOM_SETTINGS=y",
                         "CONFIG_ZMK_SPLIT=y",
                         "CONFIG_ZMK_SPLIT_ROLE_CENTRAL=y",
                         "CONFIG_ZMK_USB=y",
                         "# CONFIG_ZMK_BLE is not set",
                     ],
-                    device=[],
+                    device=[
+                        "DT_COMPAT_HAS_OKAY_zmk_input_processor_runtime_accel",
+                    ],
                 ),
                 "usb_wired_peripheral": ConfigAndDeviceTree(
                     config=[

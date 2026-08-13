@@ -1,0 +1,39 @@
+# Copyright (c) 2026 nat-chan
+# SPDX-License-Identifier: MIT
+
+description: |
+  Runtime-adjustable pointer/scroll acceleration input processor.
+
+  Scales INPUT_EV_REL REL_X/REL_Y events by a piecewise-linear
+  speed (counts/sec) -> factor (permille, 1000 = 1.0x) curve that can be
+  edited at runtime over the custom Studio RPC and persisted via
+  zmk-feature-custom-settings (key "<instance-id>_curve").
+
+compatible: "zmk,input-processor-runtime-accel"
+
+include: ip_zero_param.yaml
+
+properties:
+  instance-id:
+    type: string
+    required: true
+    description: |
+      Namespace for this instance's runtime setting key and RPC id
+      (e.g. "pointer" or "scroll"). Max 15 characters. Persistence via
+      custom settings is provided for the ids "pointer" and "scroll"
+      (see CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS); other ids still work but
+      curve changes are RAM-only.
+
+  input-type:
+    type: int
+    default: 2 # INPUT_EV_REL
+    description: Input event type to process (default INPUT_EV_REL).
+
+  default-curve:
+    type: array
+    required: true
+    description: |
+      Default curve as interleaved control points [s0 f0 s1 f1 ...]:
+      s = speed in counts/sec, f = factor in permille (1000 = 1.0x).
+      2..16 elements (1..8 points), factors within 100..20000. Used until
+      a curve is loaded from settings or set over RPC.

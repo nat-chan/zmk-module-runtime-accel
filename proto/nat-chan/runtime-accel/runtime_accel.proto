@@ -2,19 +2,58 @@ syntax = "proto3";
 
 package nat_chan.runtime_accel;
 
-message SampleRequest { int32 value = 1; }
+// Runtime-accel custom Studio RPC (see DESIGN.md section 5).
+//
+// A "curve" is a piecewise-linear speed -> factor mapping encoded as an
+// interleaved list of int32 control points: [s0, f0, s1, f1, ...] where
+// s = speed in counts/sec and f = factor in permille (1000 = 1.0x).
+// 2..16 elements = 1..8 points. The firmware sanitizes on apply: even
+// element count, factors clamped to 100..20000, points sorted by speed.
 
-message SampleResponse { string value = 1; }
+// List the instance ids of all runtime-accel input processors in the build.
+message ListInstancesRequest {}
 
-message Request {
-    oneof request_type { SampleRequest sample = 1; }
+message ListInstancesResponse {
+    // Devicetree `instance-id` of each processor instance (e.g. "pointer").
+    repeated string ids = 1;
 }
 
+// Read the currently active (RAM) curve of one instance.
+message GetCurveRequest { string instance_id = 1; }
+
+message CurveResponse {
+    string instance_id = 1;
+    // Interleaved [s0, f0, s1, f1, ...], already sanitized.
+    // sint32 (zigzag): a plain int32 would cost 10 bytes per negative value
+    // and blow the CONFIG_ZMK_STUDIO_RPC_TX_BUF_SIZE budget.
+    repeated sint32 points = 2;
+}
+
+// Replace the curve of one instance. persist=false stages the curve in RAM
+// only (custom-settings MEMORY write); persist=true also saves it to flash.
+message SetCurveRequest {
+    string instance_id = 1;
+    repeated sint32 points = 2; // see CurveResponse.points
+    bool persist = 3;
+}
+
+message AckResponse {}
+
 message ErrorResponse { string message = 1; }
+
+message Request {
+    oneof request_type {
+        ListInstancesRequest list_instances = 1;
+        GetCurveRequest get_curve = 2;
+        SetCurveRequest set_curve = 3;
+    }
+}
 
 message Response {
     oneof response_type {
         ErrorResponse error = 1;
-        SampleResponse sample = 2;
+        ListInstancesResponse instances = 2;
+        CurveResponse curve = 3;
+        AckResponse ack = 4;
     }
 }

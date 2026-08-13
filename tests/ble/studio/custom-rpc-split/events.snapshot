@@ -17,16 +17,15 @@ host <dbg> ble_studio_host: discover_func: [SUBSCRIBED]
 host <dbg> ble_studio_host: write_func: [WROTE REQUEST]
 host <dbg> ble_studio_host: handle_frame: [RPC RESPONSE 1]
 host <dbg> ble_studio_host: handle_frame: payload
-host                        0a 4e 08 01 a2 06 49 0a  47 0a 45 12 13 79 6f 75 |.N....I. G.E..you
-host                        72 5f 6e 61 6d 65 5f 5f  74 65 6d 70 6c 61 74 65 |r_name__ template
-host                        1a 2e 68 74 74 70 3a 2f  2f 63 6f 72 6d 6f 72 61 |..http:/ /cormora
-host                        6e 2e 67 69 74 68 75 62  2e 69 6f 2f 7a 6d 6b 2d |n.github .io/zmk-
-host                        6d 6f 64 75 6c 65 2d 74  65 6d 70 6c 61 74 65 2f |module-t emplate/
+host                        0a 58 08 01 a2 06 53 0a  51 0a 4f 12 17 6e 61 74 |.X....S. Q.O..nat
+host                        5f 63 68 61 6e 5f 5f 72  75 6e 74 69 6d 65 5f 61 |_chan__r untime_a
+host                        63 63 65 6c 1a 34 68 74  74 70 73 3a 2f 2f 6e 61 |ccel.4ht tps://na
+host                        74 2d 63 68 61 6e 2e 67  69 74 68 75 62 2e 69 6f |t-chan.g ithub.io
+host                        2f 7a 6d 6b 2d 6d 6f 64  75 6c 65 2d 72 75 6e 74 |/zmk-mod ule-runt
+host                        69 6d 65 2d 61 63 63 65  6c 2f                   |ime-acce l/
 host <dbg> ble_studio_host: write_func: [WROTE REQUEST]
 host <dbg> ble_studio_host: handle_frame: [RPC RESPONSE 2]
 host <dbg> ble_studio_host: handle_frame: payload
-host                        0a 2e 08 02 a2 06 29 12  27 12 25 12 23 0a 21 48 |......). '.%.#.!H
-host                        65 6c 6c 6f 20 66 72 6f  6d 20 66 69 72 6d 77 61 |ello fro m firmwa
-host                        72 65 21 20 52 65 63 65  69 76 65 64 3a 20 34 32 |re! Rece ived: 42
+host                        0a 1d 08 02 a2 06 18 12  16 12 14 1a 12 0a 07 70 |........ .......p
+host                        6f 69 6e 74 65 72 12 07  00 d0 0f d0 0f f0 2e    |ointer.. .......
 host <dbg> ble_studio_host: handle_frame: [ALL RESPONSES RECEIVED]
-peripheral <dbg> zmk: template_relay_on_sample: Peripheral received relayed sample value: 42 (v1)

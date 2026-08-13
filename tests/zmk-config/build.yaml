@@ -3,33 +3,44 @@ include:
     board: xiao_ble//zmk
     shield: tester_xiao
 
+  # Module + RPC + the two devicetree instances (pointer / scroll).
   - artifact: runtime_accel_board_with_rpc
     board: xiao_ble//zmk
     shield: tester_xiao
     cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y
-    snippet: studio-rpc-usb-uart
+    snippets:
+      - studio-rpc-usb-uart
+      - runtime-accel-instances
 
+  # Module only (no Studio): the processor still runs on the DT default-curve.
   - artifact: runtime_accel_board_without_rpc
     board: xiao_ble//zmk
     shield: tester_xiao
     cmake-args: -DCONFIG_ZMK_RUNTIME_ACCEL=y
+    snippets:
+      - runtime-accel-instances
 
   # DUT for the web UI end-to-end test (see web/e2e/ and README.md's "Web UI
   # end-to-end testing"): the same real studio-rpc-usb-uart image as
-  # runtime_accel_board_with_rpc -- one machine, so it boots and enumerates
-  # USB fast -- but with Studio locking OFF. An emulator has no key to press
+  # runtime_accel_board_with_rpc plus custom settings (so Save persists) --
+  # but with Studio locking OFF. An emulator has no key to press
   # &studio_unlock with, and the web UI disables its controls while locked.
   - artifact: web_e2e
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y
-    snippet: studio-rpc-usb-uart
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
+    snippets:
+      - studio-rpc-usb-uart
+      - runtime-accel-instances
 
+  # Full stack: module + RPC + custom settings persistence.
   - artifact: custom_settings_board
     board: xiao_ble//zmk
     shield: tester_xiao
     cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
-    snippet: studio-rpc-usb-uart
+    snippets:
+      - studio-rpc-usb-uart
+      - runtime-accel-instances
 
   # Hardware-free Renode testing (see README.md) -- the `wired-split` mode of
   # zmk-west-commands' `west zmk-renode-test`. A wired split pair: the central
@@ -39,17 +50,16 @@ include:
   # boards/shields/ here) of zmk-west-commands' test shields of the same name.
   # Emulation-only images (USB/split pinctrl), not flashable as-is.
   #
-  # The module's split-relay sample is NOT built here: relay-over-wired needs a
-  # newer zmk than the pin (fffa339 relays only over BLE, so a BLE-off wired
-  # half fails to link). That path is covered by the BabbleSim BLE test. To
-  # re-enable once the pin advances: add CONFIG_ZMK_SPLIT_RELAY_EVENT to both
-  # halves and restore the relay assertion in renode_test.py.
+  # The central carries the module's two processor instances + custom settings
+  # so tests/renode/renode_test.py can exercise ListInstances/GetCurve/SetCurve
+  # (incl. the persist path) over USB.
   - artifact: usb_wired_central
     board: xiao_ble//zmk
     shield: renode_usb_wired_split
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_RUNTIME_ACCEL=y -DCONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
     snippets:
       - studio-rpc-usb-uart
+      - runtime-accel-instances
 
   # Plain wired peripheral (no module / no Studio): pairs over the wired link
   # and forwards key events to the central.

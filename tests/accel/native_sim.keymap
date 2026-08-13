@@ -1,0 +1,20 @@
+#include "../test.dtsi"
+
+/ {
+	rta_pointer: rta_pointer {
+		compatible = "zmk,input-processor-runtime-accel";
+		#input-processor-cells = <0>;
+		instance-id = "pointer";
+		default-curve = <0 1000 1000 3000>;
+	};
+
+	/* Single control point: constant 0.5x regardless of speed, so the
+	 * event-path assertions in src/test/runtime_accel_test.c do not depend
+	 * on simulated timing. */
+	rta_scroll: rta_scroll {
+		compatible = "zmk,input-processor-runtime-accel";
+		#input-processor-cells = <0>;
+		instance-id = "scroll";
+		default-curve = <0 500>;
+	};
+};
