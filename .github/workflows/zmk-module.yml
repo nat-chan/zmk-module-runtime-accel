@@ -1,0 +1,126 @@
+name: Test ZMK Module
+
+on:
+  push:
+    branches:
+      - "main+custom-studio-protocol"
+      - "main"
+    paths-ignore:
+      - "**/*.md"
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/workflows/devcontainer.yml
+      - .github/workflows/claude.yml
+      - .github/workflows/template-sync.yml
+      - .github/workflows/web-ui.yml
+      - .github/workflows/web-e2e.yml
+      - .github/actions/zmk-env/**
+      - .gitignore
+      - .claude/**
+      - .codex/**
+      - "LICENSE"
+      - "web/**"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/workflows/devcontainer.yml
+      - .github/workflows/claude.yml
+      - .github/workflows/template-sync.yml
+      - .github/workflows/web-ui.yml
+      - .github/workflows/web-e2e.yml
+      - .github/actions/zmk-env/**
+      - .gitignore
+      - .claude/**
+      - .codex/**
+      - "LICENSE"
+      - "web/**"
+  workflow_dispatch:
+  schedule:
+    # 20:00 JST every Friday (11:00 UTC)
+    - cron: "0 11 * * 5"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Extra split-pair builds + installing Renode + the Renode test suite need
+    # more than a plain build's budget.
+    timeout-minutes: 30
+    container:
+      image: zmkfirmware/zmk-build-arm:stable
+    name: Build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ./.github/actions/west-init
+      - name: Test
+        # Builds every tests/zmk-config/build.yaml artifact, including the
+        # wired-split pair the Renode step below tests.
+        run: python3 -m unittest -v
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zmk-firmware
+          path: |
+            build/*/zephyr/zmk.uf2
+      # Hardware-free Renode test (see README.md): boots the wired-split pair
+      # built above and runs tests/renode/. This action does NOT build firmware
+      # -- it only tests the ELFs given (`elf-path` = central, `peripheral-elf`
+      # = peripheral). See zmk-west-commands' docs/renode-testing.md.
+      #
+      # Keep the ref in sync with the zmk-west-commands revision in
+      # west/west-dependency/west-test-dependency.yml.
+      # Paths are relative to the checkout root -- do NOT use
+      # ${{ github.workspace }} here: in a container job that expression
+      # is the runner-host path, not the container's mount path.
+      - uses: cormoran/zmk-west-commands/.github/actions/zmk-renode-test@main
+        with:
+          mode: wired-split
+          elf-path: build/usb_wired_central/zephyr/zmk.elf
+          peripheral-elf: build/usb_wired_peripheral/zephyr/zmk.elf
+          tests: tests/renode
+
+  ble-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: zmkfirmware/zmk-build-arm:4.1
+    name: BLE (BabbleSim) Test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ./.github/actions/west-init
+      # Runs the BabbleSim BLE tests via zmk-west-commands' zmk-ble-test action:
+      # it enables the +babblesim west group, fetches + `make`s (and caches) the
+      # bsim tree, installs protobuf/protoc for the studio_requests.json DSL,
+      # exports BSIM_OUT_PATH/BSIM_COMPONENTS_PATH, and runs `west zmk-ble-test`.
+      # Keep the ref in sync with the zmk-west-commands revision in
+      # west/west-dependency/west-test-dependency.yml and the renode action
+      # ref above.
+      - uses: cormoran/zmk-west-commands/.github/actions/zmk-ble-test@main
+        with:
+          tests: tests/ble
+          module: .
+      - name: Upload logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ble-test-logs
+          path: |
+            build/ble/**/*.log
+
+  keepalive:
+    if: github.event_name == 'schedule'
+    permissions:
+      contents: read
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Re-enable workflow to avoid deactivating scheduled runs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_REPO: ${{ github.repository }}
+        run: |
+          gh workflow enable zmk-module.yml
