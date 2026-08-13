@@ -242,11 +242,21 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         self.studio.send(req.SerializeToString())
 
     def _read_response(self, timeout: float = 10.0):
-        resp_bytes = self.studio.read_frame(timeout=timeout)
-        self.assertIsNotNone(resp_bytes, "no Studio RPC response frame (timeout)")
-        resp = self.studio_pb2.Response()
-        resp.ParseFromString(resp_bytes)
-        return resp
+        """Read the next request_response frame, skipping firmware-initiated
+        notification frames: a SetCurve's custom-settings write raises
+        zmk_custom_setting_changed, which the custom-settings subsystem
+        (CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC) broadcasts as a Studio
+        notification that can arrive before the RPC response."""
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = max(0.1, deadline - time.monotonic())
+            resp_bytes = self.studio.read_frame(timeout=remaining)
+            self.assertIsNotNone(resp_bytes, "no Studio RPC response frame (timeout)")
+            resp = self.studio_pb2.Response()
+            resp.ParseFromString(resp_bytes)
+            if resp.WhichOneof("type") == "notification":
+                continue
+            return resp
 
     def _call_accel(self, inner_request):
         """Round-trip one nat_chan.runtime_accel.Request and return the decoded
