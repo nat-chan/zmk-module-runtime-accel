@@ -93,23 +93,11 @@
   border: 1px solid #ccc;
   border-radius: 4px;
   touch-action: none;
+  user-select: none;
   background: #fafafa;
-}
-
-.curve-axis {
-  stroke: #999;
-  stroke-width: 1;
-}
-
-.curve-guide {
-  stroke: #ccc;
-  stroke-width: 1;
-  stroke-dasharray: 4 3;
-}
-
-.curve-label {
-  font-size: 10px;
-  fill: #888;
+  /* Grid/axis/label strokes derive from currentColor with per-element
+     opacities, so the whole hierarchy retunes from this one color. */
+  color: #333;
 }
 
 .curve-line {
@@ -118,11 +106,43 @@
   stroke-width: 2;
 }
 
+/* Last applied/loaded curve shown behind a dirty edit. */
+.curve-ghost {
+  fill: none;
+  stroke: #4078c0;
+  stroke-opacity: 0.3;
+  stroke-width: 1.5;
+  stroke-dasharray: 2 3;
+}
+
+/* Flat extrapolation beyond the first/last point (firmware behavior). */
+.curve-tail {
+  fill: none;
+  stroke: #4078c0;
+  stroke-opacity: 0.45;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+/* Invisible fat twin of the curve for click-to-add-point hit testing. */
+.curve-line-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  cursor: copy;
+}
+
+.curve-point-group {
+  cursor: grab;
+}
+
+.curve-point-group:active {
+  cursor: grabbing;
+}
+
 .curve-point {
   fill: #4078c0;
   stroke: #fff;
-  stroke-width: 2;
-  cursor: grab;
 }
 
 .point-list {

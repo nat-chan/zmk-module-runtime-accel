@@ -214,7 +214,7 @@ describe("CurveEditorSection", () => {
     });
   });
 
-  it("Save sends setCurve with persist=true", async () => {
+  it("Save sends setCurve with persist=true (enabled once dirty)", async () => {
     const firmware = mockFirmware({ pointer: [0, 1000] });
     renderSection();
 
@@ -222,14 +222,46 @@ describe("CurveEditorSection", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("point 0 factor")).toHaveValue(1000);
     });
+    // Apply/Save are disabled while the edit matches the loaded curve.
+    expect(screen.getByRole("button", { name: /Save/ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Apply \(RAM\)/ })
+    ).toBeDisabled();
+
+    const factorInput = screen.getByLabelText("point 0 factor");
+    await user.clear(factorInput);
+    await user.type(factorInput, "1500");
     await user.click(screen.getByRole("button", { name: /Save/ }));
 
     await waitFor(() => {
       expect(screen.getByTestId("status")).toHaveTextContent("Saved to flash");
     });
-    expect(firmware.setCurveRequests).toEqual([
-      { instanceId: "pointer", points: [0, 1000], persist: true },
-    ]);
+    expect(firmware.setCurveRequests.at(-1)).toEqual({
+      instanceId: "pointer",
+      points: [0, 1500],
+      persist: true,
+    });
+  });
+
+  it("shows the ghost curve when dirty and Revert restores the loaded curve", async () => {
+    mockFirmware({ pointer: [0, 1000, 1000, 3000] });
+    renderSection();
+
+    const user = userEvent.setup();
+    await waitFor(() => {
+      expect(screen.getByLabelText("point 1 factor")).toHaveValue(3000);
+    });
+    expect(screen.queryByTestId("curve-ghost")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Revert/ })).toBeDisabled();
+
+    const factorInput = screen.getByLabelText("point 1 factor");
+    await user.clear(factorInput);
+    await user.type(factorInput, "3500");
+    expect(screen.getByTestId("curve-ghost")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Revert/ }));
+    expect(screen.getByLabelText("point 1 factor")).toHaveValue(3000);
+    expect(screen.queryByTestId("curve-ghost")).not.toBeInTheDocument();
   });
 
   it("adds and removes control points", async () => {
@@ -262,6 +294,11 @@ describe("CurveEditorSection", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("point 0 speed")).toBeInTheDocument();
     });
+
+    // Dirty the curve so Apply is enabled.
+    const factorInput = screen.getByLabelText("point 0 factor");
+    await user.clear(factorInput);
+    await user.type(factorInput, "1200");
 
     // Make every further call fail with an error response.
     zmkClient.call_rpc.mockImplementation(

@@ -20,6 +20,8 @@ import {
   type CurvePoint,
   toPairs,
   toInterleaved,
+  insertIndexBySpeed,
+  largestGapPoint,
   FACTOR_MIN,
   FACTOR_MAX,
   MAX_POINTS,
@@ -165,7 +167,13 @@ export function CurveEditorSection() {
   const [instances, setInstances] = useState<string[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pairs, setPairs] = useState<CurvePoint[]>([]);
+  // Curve as last loaded from the firmware (post-sanitize): the ghost
+  // baseline behind a dirty edit, and the Revert target.
+  const [loadedPairs, setLoadedPairs] = useState<CurvePoint[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<"applied" | "saved" | null>(
+    null
+  );
   const [isBusy, setIsBusy] = useState(false);
   const [awaitingUnlock, setAwaitingUnlock] = useState(false);
   // Guards against a stale GetCurve response overwriting newer state: every
@@ -210,7 +218,9 @@ export function CurveEditorSection() {
       const token = ++curveLoadTokenRef.current;
       const resp = await runCall({ getCurve: { instanceId } });
       if (resp?.curve && token === curveLoadTokenRef.current) {
-        setPairs(toPairs(resp.curve.points));
+        const loaded = toPairs(resp.curve.points);
+        setPairs(loaded);
+        setLoadedPairs(loaded);
       }
     },
     [runCall]
@@ -219,7 +229,18 @@ export function CurveEditorSection() {
   /* Local edits invalidate any in-flight curve load (see curveLoadTokenRef). */
   const editPairs = (updater: (prev: CurvePoint[]) => CurvePoint[]) => {
     curveLoadTokenRef.current++;
+    setLastAction(null);
     setPairs(updater);
+  };
+
+  const isDirty = JSON.stringify(pairs) !== JSON.stringify(loadedPairs ?? []);
+
+  /* Discard local edits: restore the last loaded/applied curve. */
+  const revert = () => {
+    if (!loadedPairs) return;
+    curveLoadTokenRef.current++;
+    setLastAction(null);
+    setPairs(loadedPairs);
   };
 
   const loadInstances = useCallback(async () => {
@@ -279,6 +300,7 @@ export function CurveEditorSection() {
   const selectInstance = async (id: string) => {
     setSelected(id);
     setStatus(null);
+    setLastAction(null);
     await loadCurve(id);
   };
 
@@ -296,6 +318,7 @@ export function CurveEditorSection() {
       });
       if (resp?.ack) {
         setStatus(persist ? "Saved to flash" : "Applied (RAM only)");
+        setLastAction(persist ? "saved" : "applied");
         // Reload: the firmware sanitizes (clamps/sorts) on apply.
         await loadCurve(selected);
       }
@@ -313,11 +336,16 @@ export function CurveEditorSection() {
   const addPoint = () => {
     editPairs((prev) => {
       if (prev.length >= MAX_POINTS) return prev;
+      // Insert at the midpoint of the largest speed gap so the new point
+      // lands on the curve where there is room to shape it.
       const last = prev[prev.length - 1];
-      const next: CurvePoint = last
-        ? { speed: last.speed + 500, factor: last.factor }
-        : { speed: 0, factor: 1000 };
-      return [...prev, next];
+      const next: CurvePoint =
+        largestGapPoint(prev) ??
+        (last
+          ? { speed: last.speed + 500, factor: last.factor }
+          : { speed: 0, factor: 1000 });
+      const index = insertIndexBySpeed(prev, next.speed);
+      return [...prev.slice(0, index), next, ...prev.slice(index)];
     });
   };
 
@@ -363,7 +391,16 @@ export function CurveEditorSection() {
             ))}
           </div>
 
-          <CurveSvg pairs={pairs} onChange={(next) => editPairs(() => next)} />
+          <CurveSvg
+            pairs={pairs}
+            onChange={(next) => editPairs(() => next)}
+            ghostPairs={isDirty ? loadedPairs : null}
+          />
+          <p className="hint-message">
+            Drag points · click the line to add · double-click removes · arrow
+            keys nudge a focused point (Shift ×10) · Delete removes · hold Shift
+            while dragging for fine control
+          </p>
 
           <div className="point-list">
             {pairs.map((p, i) => (
@@ -414,15 +451,27 @@ export function CurveEditorSection() {
               ➕ Add Point
             </button>
             <button
+              className="btn btn-secondary"
+              disabled={!isDirty || isBusy}
+              onClick={revert}
+            >
+              ↩️ Revert
+            </button>
+            <button
               className="btn btn-primary"
-              disabled={isBusy || locked || pairs.length === 0}
+              disabled={isBusy || locked || pairs.length === 0 || !isDirty}
               onClick={() => void setCurve(false)}
             >
               {isBusy ? "⏳ ..." : "Apply (RAM)"}
             </button>
             <button
               className="btn btn-primary"
-              disabled={isBusy || locked || pairs.length === 0}
+              disabled={
+                isBusy ||
+                locked ||
+                pairs.length === 0 ||
+                (!isDirty && lastAction !== "applied")
+              }
               onClick={() => void setCurve(true)}
             >
               💾 Save
