@@ -241,33 +241,52 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         req.custom.call.payload = payload
         self.studio.send(req.SerializeToString())
 
-    def _read_response(self, timeout: float = 10.0):
-        """Read the next request_response frame, skipping firmware-initiated
-        notification frames: a SetCurve's custom-settings write raises
-        zmk_custom_setting_changed, which the custom-settings subsystem
-        (CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC) broadcasts as a Studio
-        notification that can arrive before the RPC response."""
+    def _read_response(self, request_id: int, timeout: float = 20.0):
+        """Read the request_response frame for `request_id`, or None on
+        timeout. Skips frames that are not it:
+
+        - firmware-initiated notification frames: a SetCurve's
+          custom-settings write raises zmk_custom_setting_changed, which the
+          custom-settings subsystem (CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC)
+          broadcasts as a Studio notification that can arrive before the RPC
+          response;
+        - stale request_response frames from an earlier, retried request
+          (see _call_raw) whose answer arrived late.
+        """
         deadline = time.monotonic() + timeout
         while True:
-            remaining = max(0.1, deadline - time.monotonic())
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
             resp_bytes = self.studio.read_frame(timeout=remaining)
-            self.assertIsNotNone(resp_bytes, "no Studio RPC response frame (timeout)")
+            if resp_bytes is None:
+                return None
             resp = self.studio_pb2.Response()
             resp.ParseFromString(resp_bytes)
             if resp.WhichOneof("type") == "notification":
                 continue
+            if resp.request_response.request_id != request_id:
+                continue
             return resp
+
+    def _call_raw(self, subsystem_index: int, payload: bytes):
+        """Send one custom.call and return the matching request_response
+        frame, resending once when no answer arrives in time: CI runners
+        occasionally stall the emulated USB CDC for tens of seconds, and
+        every request here is idempotent."""
+        for _attempt in range(2):
+            request_id = self._next_request_id()
+            self._send_call(subsystem_index, payload, request_id)
+            resp = self._read_response(request_id)
+            if resp is not None:
+                return resp
+        self.fail("no Studio RPC response frame (timeout, after one resend)")
 
     def _call_accel(self, inner_request):
         """Round-trip one nat_chan.runtime_accel.Request and return the decoded
         nat_chan.runtime_accel.Response."""
-        request_id = self._next_request_id()
-        self._send_call(
-            self.subsystem_index, inner_request.SerializeToString(), request_id
-        )
-        resp = self._read_response()
+        resp = self._call_raw(self.subsystem_index, inner_request.SerializeToString())
         self.assertEqual(resp.WhichOneof("type"), "request_response")
-        self.assertEqual(resp.request_response.request_id, request_id)
         self.assertEqual(resp.request_response.WhichOneof("subsystem"), "custom")
         custom_resp = resp.request_response.custom
         self.assertEqual(custom_resp.WhichOneof("response_type"), "call")
@@ -284,11 +303,8 @@ class RenodeWiredSplitModuleTests(unittest.TestCase):
         (Request.custom oneof selection, CallRequest field encoding,
         subsystem-count/index validation, meta.simple_error response) -- the
         fast, callback-free path."""
-        request_id = self._next_request_id()
-        self._send_call(INVALID_SUBSYSTEM_INDEX, b"", request_id)
-        resp = self._read_response()
+        resp = self._call_raw(INVALID_SUBSYSTEM_INDEX, b"")
         self.assertEqual(resp.WhichOneof("type"), "request_response")
-        self.assertEqual(resp.request_response.request_id, request_id)
         self.assertEqual(resp.request_response.WhichOneof("subsystem"), "meta")
         self.assertEqual(
             resp.request_response.meta.WhichOneof("response_type"), "simple_error"
