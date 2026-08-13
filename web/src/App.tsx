@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import "./App.css";
 import { connect as gattConnect } from "@zmkfirmware/zmk-studio-ts-client/transport/gatt";
 import {
@@ -168,6 +168,16 @@ export function CurveEditorSection() {
   const [status, setStatus] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [awaitingUnlock, setAwaitingUnlock] = useState(false);
+  // Guards against a stale GetCurve response overwriting newer state: every
+  // local edit or newer load bumps the token, and an in-flight load only
+  // applies its result if the token is unchanged when it resolves. Without
+  // this, a slow duplicate initial load can clobber an edit the user made
+  // while the response was in flight.
+  const curveLoadTokenRef = useRef(0);
+  // Fire the initial ListInstances exactly once per connection: the effect
+  // below can otherwise re-run (its callback deps change with lock-state
+  // updates) while the first, still-unresolved load is in flight.
+  const initialLoadStartedRef = useRef(false);
 
   const runCall = useCallback(
     async (request: Request): Promise<Response | null> => {
@@ -197,13 +207,20 @@ export function CurveEditorSection() {
 
   const loadCurve = useCallback(
     async (instanceId: string) => {
+      const token = ++curveLoadTokenRef.current;
       const resp = await runCall({ getCurve: { instanceId } });
-      if (resp?.curve) {
+      if (resp?.curve && token === curveLoadTokenRef.current) {
         setPairs(toPairs(resp.curve.points));
       }
     },
     [runCall]
   );
+
+  /* Local edits invalidate any in-flight curve load (see curveLoadTokenRef). */
+  const editPairs = (updater: (prev: CurvePoint[]) => CurvePoint[]) => {
+    curveLoadTokenRef.current++;
+    setPairs(updater);
+  };
 
   const loadInstances = useCallback(async () => {
     const resp = await runCall({ listInstances: {} });
@@ -218,7 +235,8 @@ export function CurveEditorSection() {
   }, [runCall, loadCurve]);
 
   useEffect(() => {
-    if (ready && instances === null) {
+    if (ready && !initialLoadStartedRef.current) {
+      initialLoadStartedRef.current = true;
       // Mirrors an external system (the firmware's instance list) rather
       // than deriving from props/state, so the async setState inside
       // loadInstances is intentional -- see react-hooks/set-state-in-effect's
@@ -226,7 +244,7 @@ export function CurveEditorSection() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadInstances();
     }
-  }, [ready, instances, loadInstances]);
+  }, [ready, loadInstances]);
 
   // Auto-retry once the device reports it's unlocked again (same pattern as
   // the template's original sample section).
@@ -287,13 +305,13 @@ export function CurveEditorSection() {
   };
 
   const updatePoint = (index: number, patch: Partial<CurvePoint>) => {
-    setPairs((prev) =>
+    editPairs((prev) =>
       prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
     );
   };
 
   const addPoint = () => {
-    setPairs((prev) => {
+    editPairs((prev) => {
       if (prev.length >= MAX_POINTS) return prev;
       const last = prev[prev.length - 1];
       const next: CurvePoint = last
@@ -304,7 +322,7 @@ export function CurveEditorSection() {
   };
 
   const removePoint = (index: number) => {
-    setPairs((prev) =>
+    editPairs((prev) =>
       prev.length > 1 ? prev.filter((_, i) => i !== index) : prev
     );
   };
@@ -345,7 +363,7 @@ export function CurveEditorSection() {
             ))}
           </div>
 
-          <CurveSvg pairs={pairs} onChange={setPairs} />
+          <CurveSvg pairs={pairs} onChange={(next) => editPairs(() => next)} />
 
           <div className="point-list">
             {pairs.map((p, i) => (
