@@ -83,7 +83,10 @@ higher-level `useCustomSubsystem` hook, which collapses
 
 ```typescript
 import { useCustomSubsystem } from "@cormoran/zmk-studio-react-hook";
-import { Request, Response } from "./proto/nat-chan/runtime-accel/runtime_accel";
+import {
+  Request,
+  Response,
+} from "./proto/nat-chan/runtime-accel/runtime_accel";
 
 const { ready, call } = useCustomSubsystem("nat_chan__runtime_accel", {
   encode: (r: Request) => Request.encode(r).finish(),

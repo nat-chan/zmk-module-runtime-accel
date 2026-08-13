@@ -1,4 +1,4 @@
-import { useContext, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import "./App.css";
 import { connect as gattConnect } from "@zmkfirmware/zmk-studio-ts-client/transport/gatt";
 import {
@@ -11,7 +11,19 @@ import {
   useCustomSubsystem,
   connectSerial,
 } from "@cormoran/zmk-studio-react-hook";
-import { Request, Response } from "./proto/nat-chan/runtime-accel/runtime_accel";
+import {
+  Request,
+  Response,
+} from "./proto/nat-chan/runtime-accel/runtime_accel";
+import { CurveSvg } from "./CurveEditor";
+import {
+  type CurvePoint,
+  toPairs,
+  toInterleaved,
+  FACTOR_MIN,
+  FACTOR_MAX,
+  MAX_POINTS,
+} from "./curve";
 
 export const SUBSYSTEM_IDENTIFIER = "nat_chan__runtime_accel";
 
@@ -33,8 +45,8 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🔧 zmk-module-runtime-accel</h1>
-        <p>Custom Studio RPC Demo</p>
+        <h1>🖱️ zmk-module-runtime-accel</h1>
+        <p>Runtime pointer/scroll acceleration curve editor</p>
       </header>
 
       <ZMKConnection
@@ -101,14 +113,15 @@ function App() {
               </button>
             </section>
 
-            <RPCTestSection />
+            <CurveEditorSection />
           </>
         )}
       />
 
       <footer className="app-footer">
         <p>
-          <strong>zmk-module-runtime-accel</strong> - Customize this for your ZMK module
+          <strong>zmk-module-runtime-accel</strong> - runtime-editable
+          speed-to-factor acceleration curves for ZMK pointing devices
         </p>
         <p>
           <a
@@ -142,60 +155,86 @@ function App() {
   );
 }
 
-export function RPCTestSection() {
+export function CurveEditorSection() {
   const zmkApp = useContext(ZMKAppContext);
   const { ready, subsystem, call } = useCustomSubsystem(SUBSYSTEM_IDENTIFIER, {
     encode: (r: Request) => Request.encode(r).finish(),
     decode: Response.decode,
   });
   const { locked } = useStudioLockState();
-  const [inputValue, setInputValue] = useState<number>(42);
-  const [response, setResponse] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [instances, setInstances] = useState<string[] | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [pairs, setPairs] = useState<CurvePoint[]>([]);
+  const [status, setStatus] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
   const [awaitingUnlock, setAwaitingUnlock] = useState(false);
 
-  const sendSampleRequest = async () => {
-    if (!ready) return;
-
-    setIsLoading(true);
-    setResponse(null);
-
-    try {
-      const resp = await call({ sample: { value: inputValue } });
-      setAwaitingUnlock(false);
-      console.log("Decoded response:", resp);
-
-      if (resp?.sample) {
-        setResponse(resp.sample.value);
-      } else if (resp?.error) {
-        setResponse(`Error: ${resp.error.message}`);
+  const runCall = useCallback(
+    async (request: Request): Promise<Response | null> => {
+      if (!ready) return null;
+      try {
+        const resp = await call(request);
+        setAwaitingUnlock(false);
+        if (resp?.error) {
+          setStatus(`Error: ${resp.error.message}`);
+          return null;
+        }
+        return resp ?? null;
+      } catch (error) {
+        if (isUnlockRequiredError(error)) {
+          setAwaitingUnlock(true);
+        } else {
+          console.error("RPC call failed:", error);
+          setStatus(
+            `Failed: ${error instanceof Error ? error.message : "Unknown error"}`
+          );
+        }
+        return null;
       }
-    } catch (error) {
-      if (isUnlockRequiredError(error)) {
-        setAwaitingUnlock(true);
-      } else {
-        console.error("RPC call failed:", error);
-        setResponse(
-          `Failed: ${error instanceof Error ? error.message : "Unknown error"}`
-        );
+    },
+    [ready, call]
+  );
+
+  const loadCurve = useCallback(
+    async (instanceId: string) => {
+      const resp = await runCall({ getCurve: { instanceId } });
+      if (resp?.curve) {
+        setPairs(toPairs(resp.curve.points));
       }
-    } finally {
-      setIsLoading(false);
+    },
+    [runCall]
+  );
+
+  const loadInstances = useCallback(async () => {
+    const resp = await runCall({ listInstances: {} });
+    if (resp?.instances) {
+      setInstances(resp.instances.ids);
+      const first = resp.instances.ids[0];
+      if (first) {
+        setSelected((prev) => prev ?? first);
+        await loadCurve(first);
+      }
     }
-  };
+  }, [runCall, loadCurve]);
 
-  // Auto-retry once the device reports it's unlocked again -- covers the
-  // common case where the user presses &studio_unlock after seeing the
-  // prompt below without needing to click "Retry" themselves.
+  useEffect(() => {
+    if (ready && instances === null) {
+      // Mirrors an external system (the firmware's instance list) rather
+      // than deriving from props/state, so the async setState inside
+      // loadInstances is intentional -- see react-hooks/set-state-in-effect's
+      // rationale (same pattern as useStudioLockState itself).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadInstances();
+    }
+  }, [ready, instances, loadInstances]);
+
+  // Auto-retry once the device reports it's unlocked again (same pattern as
+  // the template's original sample section).
   useEffect(() => {
     if (awaitingUnlock && !locked) {
-      // This mirrors an external system (the device's lock state) rather
-      // than deriving from props/state, so a direct setState here is
-      // intentional -- see react-hooks/set-state-in-effect's rationale (same
-      // pattern used by useStudioLockState itself).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAwaitingUnlock(false);
-      void sendSampleRequest();
+      void loadInstances();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
@@ -219,10 +258,60 @@ export function RPCTestSection() {
     );
   }
 
+  const selectInstance = async (id: string) => {
+    setSelected(id);
+    setStatus(null);
+    await loadCurve(id);
+  };
+
+  const setCurve = async (persist: boolean) => {
+    if (!selected) return;
+    setIsBusy(true);
+    setStatus(null);
+    try {
+      const resp = await runCall({
+        setCurve: {
+          instanceId: selected,
+          points: toInterleaved(pairs),
+          persist,
+        },
+      });
+      if (resp?.ack) {
+        setStatus(persist ? "Saved to flash" : "Applied (RAM only)");
+        // Reload: the firmware sanitizes (clamps/sorts) on apply.
+        await loadCurve(selected);
+      }
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const updatePoint = (index: number, patch: Partial<CurvePoint>) => {
+    setPairs((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, ...patch } : p))
+    );
+  };
+
+  const addPoint = () => {
+    setPairs((prev) => {
+      if (prev.length >= MAX_POINTS) return prev;
+      const last = prev[prev.length - 1];
+      const next: CurvePoint = last
+        ? { speed: last.speed + 500, factor: last.factor }
+        : { speed: 0, factor: 1000 };
+      return [...prev, next];
+    });
+  };
+
+  const removePoint = (index: number) => {
+    setPairs((prev) =>
+      prev.length > 1 ? prev.filter((_, i) => i !== index) : prev
+    );
+  };
+
   return (
     <section className="card">
-      <h2>RPC Test</h2>
-      <p>Send a sample request to the firmware:</p>
+      <h2>Acceleration Curves</h2>
 
       {locked && (
         <div className="locked-banner">
@@ -230,23 +319,105 @@ export function RPCTestSection() {
         </div>
       )}
 
-      <div className="input-group">
-        <label htmlFor="value-input">Value:</label>
-        <input
-          id="value-input"
-          type="number"
-          value={inputValue}
-          onChange={(e) => setInputValue(parseInt(e.target.value) || 0)}
-        />
-      </div>
+      {instances === null && <p>⏳ Loading instances...</p>}
+      {instances !== null && instances.length === 0 && (
+        <div className="warning-message">
+          <p>
+            ⚠️ No runtime-accel instances in this firmware. Add
+            <code> zmk,input-processor-runtime-accel </code>
+            nodes to your devicetree (see the README).
+          </p>
+        </div>
+      )}
 
-      <button
-        className="btn btn-primary"
-        disabled={isLoading || locked}
-        onClick={sendSampleRequest}
-      >
-        {isLoading ? "⏳ Sending..." : "📤 Send Request"}
-      </button>
+      {instances !== null && instances.length > 0 && (
+        <>
+          <div className="instance-buttons" role="group" aria-label="Instance">
+            {instances.map((id) => (
+              <button
+                key={id}
+                className={`btn ${selected === id ? "btn-primary" : "btn-secondary"}`}
+                aria-pressed={selected === id}
+                onClick={() => void selectInstance(id)}
+              >
+                {id}
+              </button>
+            ))}
+          </div>
+
+          <CurveSvg pairs={pairs} onChange={setPairs} />
+
+          <div className="point-list">
+            {pairs.map((p, i) => (
+              <div className="point-row" key={i}>
+                <label>
+                  speed
+                  <input
+                    type="number"
+                    min={0}
+                    aria-label={`point ${i} speed`}
+                    value={p.speed}
+                    onChange={(e) =>
+                      updatePoint(i, { speed: parseInt(e.target.value) || 0 })
+                    }
+                  />
+                </label>
+                <label>
+                  factor
+                  <input
+                    type="number"
+                    min={FACTOR_MIN}
+                    max={FACTOR_MAX}
+                    aria-label={`point ${i} factor`}
+                    value={p.factor}
+                    onChange={(e) =>
+                      updatePoint(i, { factor: parseInt(e.target.value) || 0 })
+                    }
+                  />
+                </label>
+                <button
+                  className="btn btn-secondary"
+                  aria-label={`remove point ${i}`}
+                  disabled={pairs.length <= 1}
+                  onClick={() => removePoint(i)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="curve-actions">
+            <button
+              className="btn btn-secondary"
+              disabled={pairs.length >= MAX_POINTS}
+              onClick={addPoint}
+            >
+              ➕ Add Point
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={isBusy || locked || pairs.length === 0}
+              onClick={() => void setCurve(false)}
+            >
+              {isBusy ? "⏳ ..." : "Apply (RAM)"}
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={isBusy || locked || pairs.length === 0}
+              onClick={() => void setCurve(true)}
+            >
+              💾 Save
+            </button>
+          </div>
+
+          <p className="hint-message">
+            factor is permille: 1000 = 1.0x. Speed is counts/sec. The firmware
+            clamps factors to {FACTOR_MIN}..{FACTOR_MAX} and sorts points by
+            speed on apply.
+          </p>
+        </>
+      )}
 
       {awaitingUnlock && (
         <div className="unlock-prompt card">
@@ -255,16 +426,18 @@ export function RPCTestSection() {
             <code>&amp;studio_unlock</code> behavior) on your keyboard — the
             request will retry automatically.
           </p>
-          <button className="btn btn-secondary" onClick={sendSampleRequest}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => void loadInstances()}
+          >
             Retry
           </button>
         </div>
       )}
 
-      {response && (
-        <div className="response-box">
-          <h3>Response from Firmware:</h3>
-          <pre>{response}</pre>
+      {status && (
+        <div className="response-box" data-testid="status">
+          <pre>{status}</pre>
         </div>
       )}
     </section>

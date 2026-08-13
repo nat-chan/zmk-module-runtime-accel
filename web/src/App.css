@@ -75,3 +75,84 @@
   font-size: 0.85rem;
   color: #666;
 }
+
+/* --- Curve editor --- */
+
+.instance-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.curve-svg {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  display: block;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  touch-action: none;
+  background: #fafafa;
+}
+
+.curve-axis {
+  stroke: #999;
+  stroke-width: 1;
+}
+
+.curve-guide {
+  stroke: #ccc;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.curve-label {
+  font-size: 10px;
+  fill: #888;
+}
+
+.curve-line {
+  fill: none;
+  stroke: #4078c0;
+  stroke-width: 2;
+}
+
+.curve-point {
+  fill: #4078c0;
+  stroke: #fff;
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.point-list {
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.point-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.point-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.point-row input {
+  width: 6.5rem;
+}
+
+.curve-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
