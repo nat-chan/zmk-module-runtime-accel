@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package your_name.template;
+package nat_chan.runtime_accel;
 
 message SampleRequest { int32 value = 1; }
 

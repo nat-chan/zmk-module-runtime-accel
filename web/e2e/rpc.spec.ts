@@ -20,7 +20,7 @@ const SHIM_URL = process.env.ZMK_WEB_E2E_SHIM_URL;
 // CONFIG_ZMK_KEYBOARD_NAME of the DUT (tests/zmk-config/config/tester_xiao.conf).
 const DEVICE_NAME = process.env.ZMK_WEB_E2E_DEVICE_NAME || "Module Test";
 const SAMPLE_VALUE = "42";
-// See handle_sample_request() in src/studio/template_handler.c.
+// See handle_sample_request() in src/studio/runtime_accel_handler.c.
 const EXPECTED_RESPONSE = `Hello from firmware! Received: ${SAMPLE_VALUE}`;
 
 test("the web UI round-trips the custom RPC with real firmware", async ({

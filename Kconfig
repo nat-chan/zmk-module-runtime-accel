@@ -1,15 +1,15 @@
-config ZMK_TEMPLATE_FEATURE
-    bool "Enable template feature"
+config ZMK_RUNTIME_ACCEL
+    bool "Enable runtime-accel feature"
 
-if ZMK_TEMPLATE_FEATURE
+if ZMK_RUNTIME_ACCEL
 
-config ZMK_TEMPLATE_FEATURE_STUDIO_RPC
-    bool "Enable template feature custom Studio RPC"
+config ZMK_RUNTIME_ACCEL_STUDIO_RPC
+    bool "Enable runtime-accel feature custom Studio RPC"
     depends on ZMK_STUDIO
 
 # The split-relay sample (src/split/template_relay.c) has no Kconfig of its
 # own: it follows ZMK's CONFIG_ZMK_SPLIT_RELAY_EVENT directly. Enable that
 # explicitly on BOTH split halves to compile it (the central additionally
-# needs ZMK_TEMPLATE_FEATURE_STUDIO_RPC for the RPC that triggers the relay).
+# needs ZMK_RUNTIME_ACCEL_STUDIO_RPC for the RPC that triggers the relay).
 
 endif

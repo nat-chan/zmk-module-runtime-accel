@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: MIT
  *
  * Split-relay sample feature (template sample code) -- see
- * include/your-name/template/template_relay.h for the overview.
+ * include/nat-chan/runtime-accel/template_relay.h for the overview.
  *
  * This file is compiled into BOTH split roles (central and peripheral),
  * independently of the Studio RPC subsystem (only the central runs Studio).
@@ -12,7 +12,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 #include <zmk/event_manager.h>
-#include <your-name/template/template_relay.h>
+#include <nat-chan/runtime-accel/template_relay.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
