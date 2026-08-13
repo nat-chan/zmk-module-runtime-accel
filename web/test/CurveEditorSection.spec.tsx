@@ -207,7 +207,7 @@ describe("CurveEditorSection", () => {
       );
     });
     expect(firmware.setCurveRequests).toEqual([
-      { instanceId: "pointer", points: [0, 99999], persist: false },
+      { instanceId: "pointer", points: [0, 20000], persist: false },
     ]);
     await waitFor(() => {
       expect(screen.getByLabelText("point 0 factor")).toHaveValue(20000);

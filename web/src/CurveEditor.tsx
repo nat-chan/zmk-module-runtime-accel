@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { type CurvePoint, FACTOR_MIN, FACTOR_MAX } from "./curve";
+import { type CurvePoint, FACTOR_MIN, FACTOR_MAX, SPEED_MAX } from "./curve";
 
 /**
  * Minimal SVG editor for a piecewise-linear acceleration curve: one circle
@@ -25,7 +25,13 @@ export function CurveSvg({
   const { speedMax, factorMax } = useMemo(() => {
     const maxSpeed = Math.max(1000, ...pairs.map((p) => p.speed));
     const maxFactor = Math.max(2000, ...pairs.map((p) => p.factor));
-    return { speedMax: maxSpeed * 1.15, factorMax: maxFactor * 1.15 };
+    // Cap auto-scale at the firmware ceiling; otherwise dragging a point to
+    // the right edge grows the axis 15% per frame and the value explodes
+    // past int32 (protobuf "invalid int32" on SetCurve).
+    return {
+      speedMax: Math.min(SPEED_MAX, maxSpeed * 1.15),
+      factorMax: Math.min(FACTOR_MAX, maxFactor * 1.15),
+    };
   }, [pairs]);
 
   const toX = (speed: number) => MARGIN.left + (speed / speedMax) * PLOT_W;
@@ -42,7 +48,7 @@ export function CurveSvg({
     const speed = Math.round(((x - MARGIN.left) / PLOT_W) * speedMax);
     const factor = Math.round(((MARGIN.top + PLOT_H - y) / PLOT_H) * factorMax);
     return {
-      speed: Math.max(0, speed),
+      speed: Math.min(SPEED_MAX, Math.max(0, speed)),
       factor: Math.min(FACTOR_MAX, Math.max(FACTOR_MIN, factor)),
     };
   };
