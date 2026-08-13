@@ -3,10 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { setupZMKMocks } from "@cormoran/zmk-studio-react-hook/testing";
 import App from "../src/App";
 
-// Mock the ZMK client
+// Mock the ZMK client. MetaError must exist even here: the curve editor's
+// error handler calls isUnlockRequiredError, which does an `instanceof
+// MetaError` check against this module's export.
 jest.mock("@zmkfirmware/zmk-studio-ts-client", () => ({
   create_rpc_connection: jest.fn(),
   call_rpc: jest.fn(),
+  MetaError: class MetaError extends Error {
+    condition: number;
+    constructor(condition: number) {
+      super(`meta error: ${condition}`);
+      this.condition = condition;
+      Object.setPrototypeOf(this, MetaError.prototype);
+    }
+  },
 }));
 
 jest.mock("@zmkfirmware/zmk-studio-ts-client/transport/gatt", () => ({
@@ -64,27 +74,29 @@ describe("App Component", () => {
       expect(
         screen.getByRole("heading", { name: /zmk-module-runtime-accel/i })
       ).toBeInTheDocument();
-      expect(screen.getByText(/Custom Studio RPC Demo/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/acceleration curve editor/i)
+      ).toBeInTheDocument();
     });
 
     it("should render footer with repo link", () => {
       render(<App />);
 
-      expect(screen.getByText(/zmk-module-runtime-accel/i)).toBeInTheDocument();
-      // In the pristine template, GITHUB_REPO and TEMPLATE_CREDIT_REPO happen
-      // to share the same placeholder value -- scripts/init_module.py only
-      // rewrites the former (the latter is permanently exempted), so after
-      // initialization only one of these links still reads this text.
-      const links = screen.getAllByRole("link", {
+      // GITHUB_REPO links to this module's repo; the separate template
+      // credit link (TEMPLATE_CREDIT_REPO) points at cormoran's template.
+      const link = screen.getByRole("link", {
         name: "nat-chan/zmk-module-runtime-accel",
       });
-      expect(links.length).toBe(2);
-      for (const link of links) {
-        expect(link).toHaveAttribute(
-          "href",
-          "https://github.com/nat-chan/zmk-module-runtime-accel"
-        );
-      }
+      expect(link).toHaveAttribute(
+        "href",
+        "https://github.com/nat-chan/zmk-module-runtime-accel"
+      );
+      expect(
+        screen.getByRole("link", { name: "cormoran/zmk-module-template" }) // zmk-module-template:keep
+      ).toHaveAttribute(
+        "href",
+        "https://github.com/cormoran/zmk-module-template" // zmk-module-template:keep
+      );
     });
 
     it("should render a permanent template credit that survives initialization", () => {
@@ -172,7 +184,9 @@ describe("App Component", () => {
       });
 
       expect(screen.getByText(/Disconnect/i)).toBeInTheDocument();
-      expect(screen.getByText(/RPC Test/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { name: /Acceleration Curves/i })
+      ).toBeInTheDocument();
     });
 
     it("should connect to device via Bluetooth when connect button is clicked", async () => {

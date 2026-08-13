@@ -1,0 +1,23 @@
+/*
+ * Two runtime-accel input processor instances, matching the torabo-tsuki
+ * example in README.md: "pointer" for the raw REL_X/REL_Y stream and
+ * "scroll" for a stream that is later mapped to wheel events. Standalone
+ * nodes (no input-listener required): the driver instantiates per
+ * compatible, which is what the RPC/build tests exercise.
+ */
+
+/ {
+	rta_pointer: rta_pointer {
+		compatible = "zmk,input-processor-runtime-accel";
+		#input-processor-cells = <0>;
+		instance-id = "pointer";
+		default-curve = <0 1000 1000 1000 3000 3500>;
+	};
+
+	rta_scroll: rta_scroll {
+		compatible = "zmk,input-processor-runtime-accel";
+		#input-processor-cells = <0>;
+		instance-id = "scroll";
+		default-curve = <0 1000 3000 2000>;
+	};
+};

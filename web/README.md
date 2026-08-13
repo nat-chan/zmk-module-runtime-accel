@@ -83,7 +83,10 @@ higher-level `useCustomSubsystem` hook, which collapses
 
 ```typescript
 import { useCustomSubsystem } from "@cormoran/zmk-studio-react-hook";
-import { Request, Response } from "./proto/nat-chan/runtime-accel/runtime_accel";
+import {
+  Request,
+  Response,
+} from "./proto/nat-chan/runtime-accel/runtime_accel";
 
 const { ready, call } = useCustomSubsystem("nat_chan__runtime_accel", {
   encode: (r: Request) => Request.encode(r).finish(),
@@ -91,7 +94,7 @@ const { ready, call } = useCustomSubsystem("nat_chan__runtime_accel", {
 });
 
 if (ready) {
-  const response = await call({ sample: { value: 42 } });
+  const response = await call({ getCurve: { instanceId: "pointer" } });
 }
 ```
 
@@ -114,15 +117,16 @@ disconnected screen -- no error is shown.
 ### 6. Studio unlock flow
 
 Secured custom RPCs (and the settings subsystem) reject calls with an
-`UNLOCK_REQUIRED` error while ZMK Studio is locked on the device. This
-template ships the full flow by default, even though the sample firmware
-handler in `src/studio/runtime_accel_handler.c` is registered as
-`ZMK_STUDIO_RPC_HANDLER_UNSECURED` (so the sample RPC never actually hits it)
+`UNLOCK_REQUIRED` error while ZMK Studio is locked on the device. The app
+ships the full flow by default, even though the firmware handler in
+`src/studio/runtime_accel_handler.c` is registered as
+`ZMK_STUDIO_RPC_HANDLER_UNSECURED` (so the curve RPC never actually hits it)
 -- switching that handler to `ZMK_STUDIO_RPC_HANDLER_SECURED` requires no web
 changes:
 
-- `useStudioLockState()` tracks the device's lock state and disables the Send
-  button (with a slim "🔒 ZMK Studio is locked" banner) whenever it's locked.
+- `useStudioLockState()` tracks the device's lock state and disables the
+  Apply/Save buttons (with a slim "🔒 ZMK Studio is locked" banner) whenever
+  it's locked.
 - If a call is rejected with `isUnlockRequiredError(error)`, the app shows an
   unlock prompt card ("press `&studio_unlock` on your keyboard") instead of
   the response box.
@@ -168,11 +172,11 @@ render(
 `test/App.spec.tsx` mocks both `@zmkfirmware/zmk-studio-ts-client/transport/serial`
 and `.../transport/gatt` to cover feature detection and both connect buttons;
 jsdom defines neither `navigator.serial` nor `navigator.bluetooth` by default,
-so tests define/delete them per case. `test/RPCTestSection.spec.tsx` covers
-the unlock flow by mocking `call_rpc` to reject with a `MetaError` whose
-condition is `UNLOCK_REQUIRED`, then asserting the prompt appears and that
-both the manual Retry button and a simulated `lockStateChanged` notification
-successfully retry the request.
+so tests define/delete them per case. `test/CurveEditorSection.spec.tsx`
+drives the curve editor against a fake firmware (mocked `call_rpc` answering
+listInstances/getCurve/setCurve like the real handler, including
+sanitize-on-apply) and covers instance switching, Apply/Save persist flags,
+point add/remove and error surfacing.
 
 ## Customization
 

@@ -1,5 +1,12 @@
 # Nanopb options file for runtime_accel.proto
-# This defines max sizes for string fields
+# Every string/repeated field needs a bound so nanopb generates plain
+# struct fields (not callbacks) and *_size macros for the BUILD_ASSERTs in
+# src/studio/runtime_accel_handler.c.
 
-nat_chan.runtime_accel.SampleResponse.value    max_size:64
-nat_chan.runtime_accel.ErrorResponse.message   max_size:64
+nat_chan.runtime_accel.ListInstancesResponse.ids   max_count:4 max_size:16
+nat_chan.runtime_accel.GetCurveRequest.instance_id max_size:16
+nat_chan.runtime_accel.CurveResponse.instance_id   max_size:16
+nat_chan.runtime_accel.CurveResponse.points        max_count:16
+nat_chan.runtime_accel.SetCurveRequest.instance_id max_size:16
+nat_chan.runtime_accel.SetCurveRequest.points      max_count:16
+nat_chan.runtime_accel.ErrorResponse.message       max_size:64

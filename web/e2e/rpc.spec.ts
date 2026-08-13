@@ -11,19 +11,17 @@
  *   west zmk-build tests/zmk-config -af web_e2e
  *   west zmk-web-e2e --elf build/web_e2e/zephyr/zmk.elf -- npm --prefix web run e2e
  *
- * Rewrite the RPC assertions for your own module's requests; the connect half
- * stays as is.
+ * The DUT carries the two runtime-accel instances from the
+ * runtime-accel-instances snippet (tests/zmk-config/snippets/), so the curve
+ * editor drives the full ListInstances -> GetCurve -> SetCurve path.
  */
 import { test, expect } from "@playwright/test";
 
 const SHIM_URL = process.env.ZMK_WEB_E2E_SHIM_URL;
 // CONFIG_ZMK_KEYBOARD_NAME of the DUT (tests/zmk-config/config/tester_xiao.conf).
 const DEVICE_NAME = process.env.ZMK_WEB_E2E_DEVICE_NAME || "Module Test";
-const SAMPLE_VALUE = "42";
-// See handle_sample_request() in src/studio/runtime_accel_handler.c.
-const EXPECTED_RESPONSE = `Hello from firmware! Received: ${SAMPLE_VALUE}`;
 
-test("the web UI round-trips the custom RPC with real firmware", async ({
+test("the curve editor round-trips the custom RPC with real firmware", async ({
   page,
   request,
 }) => {
@@ -44,12 +42,38 @@ test("the web UI round-trips the custom RPC with real firmware", async ({
   await expect(page.getByText(`Connected to: ${DEVICE_NAME}`)).toBeVisible();
 
   // The firmware registered this module's custom subsystem: the app found it
-  // and rendered its panel (it renders a "not found" warning otherwise).
-  await expect(page.getByRole("heading", { name: "RPC Test" })).toBeVisible();
+  // and rendered the curve editor (it renders a "not found" warning otherwise).
+  await expect(
+    page.getByRole("heading", { name: "Acceleration Curves" })
+  ).toBeVisible();
 
-  // The module's own RPC, end to end: the app encodes a SampleRequest, the
-  // firmware's handler answers, and the decoded response reaches the DOM.
-  await page.getByLabel("Value:").fill(SAMPLE_VALUE);
-  await page.getByRole("button", { name: /Send Request/ }).click();
-  await expect(page.getByText(EXPECTED_RESPONSE)).toBeVisible();
+  // ListInstances: both devicetree instances from the snippet are listed.
+  await expect(page.getByRole("button", { name: "pointer" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "scroll" })).toBeVisible();
+
+  // GetCurve: the pointer instance's devicetree default-curve
+  // <0 1000 1000 1000 3000 3500> is loaded into the editor (3 points).
+  await expect(page.getByLabel("point 0 factor")).toHaveValue("1000");
+  await expect(page.getByLabel("point 2 speed")).toHaveValue("3000");
+  await expect(page.getByLabel("point 2 factor")).toHaveValue("3500");
+  await expect(page.getByTestId("curve-svg")).toBeVisible();
+
+  // SetCurve (persist=false): edit a factor beyond the firmware clamp; the
+  // firmware sanitizes on apply and the UI reloads the clamped value.
+  const factor2 = page.getByLabel("point 2 factor");
+  await factor2.fill("99999");
+  await page.getByRole("button", { name: /Apply \(RAM\)/ }).click();
+  await expect(page.getByTestId("status")).toHaveText("Applied (RAM only)");
+  await expect(factor2).toHaveValue("20000");
+
+  // SetCurve (persist=true): the same value saved to flash via the
+  // custom-settings write path.
+  await page.getByRole("button", { name: /Save/ }).click();
+  await expect(page.getByTestId("status")).toHaveText("Saved to flash");
+
+  // Switching instances loads the scroll instance's own default curve
+  // <0 1000 3000 2000>.
+  await page.getByRole("button", { name: "scroll" }).click();
+  await expect(page.getByLabel("point 1 speed")).toHaveValue("3000");
+  await expect(page.getByLabel("point 1 factor")).toHaveValue("2000");
 });

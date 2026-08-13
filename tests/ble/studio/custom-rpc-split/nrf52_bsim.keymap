@@ -34,6 +34,16 @@
         >;
     };
 
+    /* One runtime-accel instance so the GetCurve RPC in
+     * studio_requests.json has a deterministic devicetree default to
+     * return. Shared with the peripheral build (harmless there). */
+    rta_pointer: rta_pointer {
+        compatible = "zmk,input-processor-runtime-accel";
+        #input-processor-cells = <0>;
+        instance-id = "pointer";
+        default-curve = <0 1000 1000 3000>;
+    };
+
     keymap {
         compatible = "zmk,keymap";
 

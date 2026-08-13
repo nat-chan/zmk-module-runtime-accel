@@ -1,0 +1,18 @@
+instances 2 'pointer' 'scroll'
+unknown lookup 0
+default pointer (0,1000) (1000,3000)
+default scroll (0,500)
+sanitize apply ret 0
+sanitized pointer (0,100) (500,20000) (1000,1500)
+short apply ret -22
+unchanged pointer (0,100) (500,20000) (1000,1500)
+factor 100 10050 10750 1500 -19
+event scale ret 0 out 1 then 2
+event flip out 6 then -3
+event passthrough 7
+settings backend 0
+setting found 1
+via-settings pointer (0,1000) (2000,4000)
+settings reset 0
+after-reset pointer (0,1000) (1000,3000)
+done

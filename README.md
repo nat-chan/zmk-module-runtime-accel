@@ -3,68 +3,146 @@
 ![ZMK Version](https://img.shields.io/badge/ZMK-master-blue)
 [![Test](https://github.com/nat-chan/zmk-module-runtime-accel/actions/workflows/zmk-module.yml/badge.svg?branch=main)](https://github.com/nat-chan/zmk-module-runtime-accel/actions/workflows/zmk-module.yml) [![Devcontainer](https://github.com/nat-chan/zmk-module-runtime-accel/actions/workflows/devcontainer.yml/badge.svg?branch=main)](https://github.com/nat-chan/zmk-module-runtime-accel/actions/workflows/devcontainer.yml)
 
-This repository contains a template for a ZMK module with Web UI using the **unofficial** custom ZMK Studio RPC protocol.
+A ZMK input processor for pointer/scroll **acceleration with a runtime-editable
+curve**: instead of recompiling firmware to tune acceleration, you drag control
+points on a speed→factor curve in a web browser and the change takes effect
+immediately (and can be saved to flash). Built for
+[torabo-tsuki-lp](https://github.com/sekigon-gonnoc/zmk-keyboard-torabo-tsuki-lp)
+but works with any ZMK pointing device.
 
-It's extended from ZMK official template with [zmk-west-commands](https://github.com/cormoran/zmk-west-commands), test code template, coding agent support, and custom Studio RPC protocol support.
+- **Curve model**: up to 8 control points `(speed counts/sec, factor permille)`,
+  linear interpolation between points, flat extension outside. `1000` = 1.0x,
+  factors clamped to `100..20000`. Fractional output accumulates in per-axis
+  remainders; acceleration is suppressed for one event on direction flips.
+- **Editing**: a custom ZMK Studio RPC subsystem (`nat_chan__runtime_accel`)
+  with three requests — `ListInstances` / `GetCurve` / `SetCurve` — and a
+  minimal web curve editor in [`web/`](./web) (published at
+  <https://nat-chan.github.io/zmk-module-runtime-accel/>).
+- **Persistence**: one INT32-array entry per instance (key
+  `"<instance-id>_curve"`) via
+  [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings);
+  `SetCurve(persist=true)` saves to flash, `persist=false` stages in RAM only.
+  Curves also appear in the generic custom-settings web UI.
 
-## Summary
-
-This template includes:
-
-- **Firmware**: Sample custom Studio RPC handler (`src/studio/runtime_accel_handler.c`)
-- **Protocol**: Protobuf definition (`proto/nat-chan/runtime-accel/runtime_accel.proto`)
-- **Web UI**: React + TypeScript app (`web/`) using [@cormoran/zmk-studio-react-hook](https://github.com/cormoran/react-zmk-studio)
-- **Tests**: Firmware unit tests (`tests/studio/`) and build tests (`tests/zmk-config/`)
-
-Read through the [ZMK Module Creation](https://zmk.dev/docs/development/module-creation) page for details on how to configure this template.
-
-## More Info
-
-For more info on modules, you can read through through the [Zephyr modules page](https://docs.zephyrproject.org/3.5.0/develop/modules.html) and [ZMK's page on using modules](https://zmk.dev/docs/features/modules). [Zephyr's west manifest page](https://docs.zephyrproject.org/3.5.0/develop/west/manifest.html#west-manifests) may also be of use.
+This module uses the **unofficial** custom Studio RPC protocol, so it requires
+a patched ZMK (see the west manifest below).
 
 ## Module User Guide
 
-1. Add dependency to your `config/west.yml`. Note: this module requires a patched ZMK with custom Studio RPC support.
+### 1. west.yml
 
-   ```yml
-   manifest:
-       remotes:
-           ...
-           - name: cormoran
-           url-base: https://github.com/cormoran
-       projects:
-           ...
-           - name: zmk-module-runtime-accel
-           remote: cormoran
-           revision: main+custom-studio-protocol # or latest commit hash
-           import: true
-           ...
-           # Required: patched ZMK with custom Studio RPC support
-           - name: zmk
-           remote: cormoran
-           revision: main+custom-studio-protocol
-           import:
-               file: app/west.yml
-   ```
+Add the module and the patched ZMK to your `config/west.yml`:
 
-2. Enable flags in your `config/<shield>.conf`
+```yml
+manifest:
+  remotes:
+    - name: nat-chan
+      url-base: https://github.com/nat-chan
+  projects:
+    - name: zmk-module-runtime-accel
+      remote: nat-chan
+      revision: main
+      import: true # pulls in zmk-feature-custom-settings
+    # Required: patched ZMK with custom Studio RPC support
+    - name: zmk
+      remote: nat-chan
+      revision: v0.3+custom-studio-protocol
+      import:
+        file: app/west.yml
+  self:
+    path: config
+```
 
-   ```conf
-   CONFIG_ZMK_RUNTIME_ACCEL=y
+### 2. Kconfig
 
-   # Optionally enable custom Studio RPC
-   CONFIG_ZMK_STUDIO=y
-   CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y
-   CONFIG_ZMK_CUSTOM_SETTINGS=y
-   CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
-   CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=128
-   CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
-   ```
+In your `config/<shield>.conf` (the split **central** side — the half that
+runs Studio and owns the pointing device):
 
-3. Implement your custom protocol by editing:
-   - `proto/nat-chan/runtime-accel/runtime_accel.proto` — message types
-   - `src/studio/runtime_accel_handler.c` — firmware RPC handler
-   - `web/src/App.tsx` — web UI
+```conf
+CONFIG_ZMK_RUNTIME_ACCEL=y
+
+# Curve editing over ZMK Studio RPC
+CONFIG_ZMK_STUDIO=y
+CONFIG_ZMK_RUNTIME_ACCEL_STUDIO_RPC=y
+
+# Persist curves to flash (recommended)
+CONFIG_ZMK_CUSTOM_SETTINGS=y
+CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
+
+# Buffer budget: the largest curve message needs bigger RPC buffers than
+# ZMK's defaults. The firmware BUILD_ASSERTs on these, so a too-small value
+# fails at compile time instead of corrupting responses at runtime.
+CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192
+CONFIG_ZMK_STUDIO_RPC_TX_BUF_SIZE=192
+CONFIG_ZMK_STUDIO_RPC_CUSTOM_SUBSYSTEM_REQUEST_PAYLOAD_MAX_BYTES=128
+CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
+```
+
+### 3. Devicetree overlay
+
+Define one processor instance per stream and put it in the input-processor
+chain. Example for torabo-tsuki-lp (`config/torabo_tsuki_lp_left.overlay`),
+replacing a compile-time `&pointer_accel`-style processor with two runtime
+instances — one for pointing, one for a scroll layer:
+
+```dts
+#include <input/processors.dtsi>
+
+/ {
+    pointer_accel: pointer_accel {
+        compatible = "zmk,input-processor-runtime-accel";
+        #input-processor-cells = <0>;
+        instance-id = "pointer";
+        /* [speed factor ...]: 1.0x up to 1000 counts/s, 3.5x at 3000+ */
+        default-curve = <0 1000 1000 1000 3000 3500>;
+    };
+
+    scroll_accel: scroll_accel {
+        compatible = "zmk,input-processor-runtime-accel";
+        #input-processor-cells = <0>;
+        instance-id = "scroll";
+        default-curve = <0 1000 3000 2000>;
+    };
+};
+
+/* Trackball on the central: plain pointing uses the "pointer" curve. */
+&pointing_listener {
+    input-processors = <&pointer_accel>;
+};
+
+/* On a scroll layer, run the "scroll" curve BEFORE the xy-to-scroll mapper
+ * so acceleration applies to the raw movement, e.g.:
+ *   input-processors = <&scroll_accel &zip_xy_to_scroll_mapper>;
+ */
+```
+
+Notes:
+
+- `instance-id` namespaces the RPC and the settings key
+  (`pointer` → `pointer_curve`). **Persistence is provided for the ids
+  `pointer` and `scroll`** (the custom-settings registry only supports
+  statically defined array settings, see `CONFIG_ZMK_RUNTIME_ACCEL_SETTINGS`);
+  other ids work but their curve changes are RAM-only.
+- `default-curve` is used until a saved curve is loaded from flash or a curve
+  is set over RPC. It must have an even number of 2..16 values.
+
+### 4. 使い方 (editing curves)
+
+1. キーボードを USB か BLE で PC につなぎ、
+   <https://nat-chan.github.io/zmk-module-runtime-accel/> を Chromium 系
+   ブラウザで開いて Connect します(Studio ロックがある場合は
+   `&studio_unlock` キーで解除)。
+2. インスタンス(`pointer` / `scroll`)を選ぶと現在のカーブが表示されます。
+   制御点をドラッグ(またはダブルクリックで削除、"Add Point" で追加)して
+   カーブを編集します。横軸 = ポインタ速度 (counts/sec)、縦軸 = 倍率
+   (permille、1000 = 1.0x)。
+3. **Apply (RAM)** は試し当て(電源を切ると消える)、**Save** はフラッシュに
+   保存します。壊れた値を送っても firmware 側で偶数個への切り詰め・
+   100..20000 へのクランプ・速度順ソートが行われるので安全です。
+
+The same three RPCs are available to any Studio client; the curve is an
+interleaved `sint32` list `[s0, f0, s1, f1, ...]` (see
+[`proto/nat-chan/runtime-accel/runtime_accel.proto`](./proto/nat-chan/runtime-accel/runtime_accel.proto)).
 
 ### Web UI
 
@@ -72,23 +150,11 @@ See [web/README.md](./web/README.md) for web UI development instructions.
 
 ### Publishing Web UI
 
-**GitHub Pages**: Merge a pull request into `main+custom-studio-protocol` to deploy to `https://<account>.github.io/<repo>/`.
+**GitHub Pages**: Merge a pull request into `main` to deploy to `https://<account>.github.io/<repo>/`.
 
-**Cloudflare Workers (PR previews)**: Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Previews are optional — when the secrets are absent (e.g. a fresh repo created from this template), the workflow stays green and simply comments on the PR explaining how to enable them instead of deploying.
+**Cloudflare Workers (PR previews)**: Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets. Previews are optional — when the secrets are absent, the workflow stays green and simply comments on the PR explaining how to enable them instead of deploying.
 
 ## Module Development Guide
-
-### Initialize from template
-
-Right after creating a repository from this template, run the initialization
-script and follow the checklist in [AGENTS.md](./AGENTS.md):
-
-```bash
-python3 scripts/init_module.py --namespace <your-github-name> --module <feature-name>
-```
-
-It replaces every template placeholder (identifiers, paths, URLs, artifact
-names) and verifies nothing is left (`--verify-only` re-checks at any time).
 
 ### Setup for running test
 
@@ -149,7 +215,8 @@ pre-commit run
 python3 -m unittest
 # Run build test directly
 west zmk-build tests/zmk-config
-# Run unit test directly
+# Run unit test directly (tests/studio: RPC subsystem boots with 0 devices;
+# tests/accel: curve sanitize/eval/settings-apply on native_sim)
 west zmk-test tests -m .
 # Run web tests
 cd web && npm test
@@ -158,12 +225,12 @@ cd web && npm test
 ### Hardware-free Renode testing
 
 CI boots the firmware in the [Renode](https://renode.io/) emulator (a `Build`
-job step) and runs `tests/renode/` -- `renode_test.py` is the file a module
-built from this template rewrites for its own RPC surface. It uses
+job step) and runs `tests/renode/` -- `renode_test.py` exercises this module's
+ListInstances/GetCurve/SetCurve RPC (including sanitize-on-apply and the
+custom-settings write path) over the central's emulated **USB CDC**. It uses
 `west zmk-renode-test`'s **`wired-split`** mode: a wired split pair whose central
-answers Studio RPC over the emulated **USB CDC** while the wired split link
-forwards key events, covering both the central-only Studio path and the split
-path. The ELFs are the `usb_wired_central` / `usb_wired_peripheral` artifacts in
+answers Studio RPC over USB while the wired split link forwards key events. The
+ELFs are the `usb_wired_central` / `usb_wired_peripheral` artifacts in
 `tests/zmk-config/build.yaml`. Locally:
 
 ```bash
@@ -174,10 +241,7 @@ west zmk-renode-test tests/renode --mode wired-split \
     --peripheral-elf build/usb_wired_peripheral/zephyr/zmk.elf
 ```
 
-The module's own split-relay *sample* (the central forwarding a value to the
-peripheral) is not exercised here -- ZMK's relay-over-wired transport is newer
-than this repo's pinned zmk, so it is covered by the BabbleSim BLE test instead
-(see below). Details (the mode + `ZMK_RENODE_*` env contract): see
+Details (the mode + `ZMK_RENODE_*` env contract): see
 [zmk-west-commands' README, `west zmk-renode-test`](https://github.com/cormoran/zmk-west-commands#west-zmk-renode-test)
 and [docs/renode-testing.md](https://github.com/cormoran/zmk-west-commands/blob/main/docs/renode-testing.md).
 
@@ -189,8 +253,7 @@ workflow). `west zmk-web-e2e` boots the DUT, serves its Studio RPC (over the
 emulated USB CDC) to the browser and hands the test a `navigator.serial` shim,
 so the app, its transport, the RPC framing and the firmware are all real -- only
 the browser's serial driver is faked. `rpc.spec.ts` connects through the app's
-own button and round-trips the module's custom RPC; rewrite its assertions for
-your own requests. Locally:
+own button and drives the curve editor end to end. Locally:
 
 ```bash
 west zmk-build tests/zmk-config -af web_e2e
@@ -207,18 +270,17 @@ debugging): see
 
 `tests/ble/` runs real `nrf52_bsim` firmware on a simulated radio (x86 Linux
 only; CI's `ble-test` job). The one case, `studio/custom-rpc-split`, checks --
-in a split central+peripheral topology -- that the custom Studio RPC answers
-over the BLE GATT transport while the split link is active, AND that the
-split-relay sample delivers the RPC value to the peripheral (asserted via the
-peripheral's log line). The Studio host side is one declarative
-`studio_requests.json` -- no host C code in this module. Locally:
+in a split central+peripheral topology -- that the curve RPC answers over the
+BLE GATT transport while the split link is active (listCustomSubsystems +
+GetCurve, asserted byte-exact against a snapshot). The Studio host side is one
+declarative `studio_requests.json` -- no host C code in this module. Locally:
 
 ```bash
 west zmk-ble-test tests/ble -m .   # --auto-accept regenerates snapshots
 ```
 
 Details (case-file conventions, JSON DSL, `{prefix}`/`{studio_host}`,
-BabbleSim setup, peripheral assertion): see
+BabbleSim setup): see
 [zmk-west-commands' README, `west zmk-ble-test`](https://github.com/cormoran/zmk-west-commands#west-zmk-ble-test).
 
 ### Sync changes from template
@@ -234,3 +296,10 @@ Actions for github copilot and claude are available.
 - Mention `@copilot`
 - Setup `ANTHROPIC_API_KEY` secret and mention `@claude`
   - Or fix [claude.yml](./github/workflows/claude.yml) to use `CLAUDE_CODE_OAUTH_TOKEN`
+
+## Credits
+
+- Built from [cormoran/zmk-module-template](https://github.com/cormoran/zmk-module-template) by [@cormoran](https://github.com/cormoran). <!-- zmk-module-template:keep -->
+- The per-event speed estimation, remainder accumulation and direction-flip
+  suppression in the processor are adapted from the MIT-licensed
+  zmk-input-processor-acceleration sample.

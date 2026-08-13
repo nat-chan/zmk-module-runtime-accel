@@ -1,0 +1,5 @@
+# Adds the two runtime-accel input processor instances (pointer / scroll)
+# used by the build tests, the Renode RPC test and the web e2e DUT.
+name: runtime-accel-instances
+append:
+  EXTRA_DTC_OVERLAY_FILE: instances.overlay
